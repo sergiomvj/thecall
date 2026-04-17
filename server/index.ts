@@ -529,12 +529,11 @@ app.post("/api/personas/:id/avatar", async (request, response) => {
       persona: toPersonaDto(updatedPersona),
     });
   } catch (error) {
-    await prisma.persona.updateMany({
+    const persona = await prisma.persona.findUnique({
       where: { id: personaId },
-      data: { status: "FAILED" },
     });
 
-    if (await prisma.persona.count({ where: { id: personaId } })) {
+    if (persona) {
       await prisma.generationLog.create({
         data: {
           personaId,
@@ -545,6 +544,13 @@ app.post("/api/personas/:id/avatar", async (request, response) => {
           success: false,
           errorMessage:
             error instanceof Error ? error.message : "Unknown avatar failure",
+        },
+      });
+
+      await prisma.persona.update({
+        where: { id: personaId },
+        data: {
+          status: persona.avatarUrl ? "READY" : "AVATAR_PENDING",
         },
       });
     }
