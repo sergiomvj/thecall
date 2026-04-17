@@ -23,9 +23,11 @@ const app = express();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, "..");
 const uploadsDir = path.join(rootDir, "storage", "avatars");
+const distDir = path.join(rootDir, "dist");
 
 app.use(express.json({ limit: "2mb" }));
 app.use("/uploads", express.static(path.join(rootDir, "storage")));
+app.use(express.static(distDir));
 
 function asyncHandler(
   handler: (
@@ -392,6 +394,20 @@ app.use(
     });
   }
 );
+
+app.get("*", asyncHandler(async (request, response, next) => {
+  if (request.path.startsWith("/api/")) {
+    next();
+    return;
+  }
+
+  try {
+    await fs.access(path.join(distDir, "index.html"));
+    response.sendFile(path.join(distDir, "index.html"));
+  } catch {
+    next();
+  }
+}));
 
 async function main() {
   await fs.mkdir(uploadsDir, { recursive: true });
