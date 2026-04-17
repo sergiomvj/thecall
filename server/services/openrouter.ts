@@ -94,6 +94,19 @@ function parseResponseError(responseBody: string): string {
   }
 }
 
+function shouldFallbackFromResponse(status: number, errorSummary: string): boolean {
+  if (status === 429 || status >= 500) {
+    return true;
+  }
+
+  if (status === 404) {
+    const normalized = errorSummary.toLowerCase();
+    return normalized.includes("deprecated") || normalized.includes("no longer available");
+  }
+
+  return false;
+}
+
 export async function generatePersonaProfile(
   input: GeneratePersonaProfileInput
 ): Promise<PersonaProfile> {
@@ -165,7 +178,10 @@ Requirements:
     const responseBody = await response.text();
     if (!response.ok) {
       const errorSummary = parseResponseError(responseBody).slice(0, 300);
-      const shouldFallback = response.status === 429 || response.status >= 500;
+      const shouldFallback = shouldFallbackFromResponse(
+        response.status,
+        errorSummary
+      );
 
       if (shouldFallback) {
         attemptErrors.push(`${model}: status ${response.status} (${errorSummary})`);

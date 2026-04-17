@@ -18,7 +18,7 @@ export const env = {
     const configured =
       process.env.OPENROUTER_FALLBACK_MODELS ??
       [
-        "qwen/qwen3.6-plus:free",
+        "qwen/qwen3.6-plus-preview:free",
         "google/gemma-4-26b-a4b-it:free",
         "arcee-ai/trinity-large-preview:free",
         "meta-llama/llama-3.2-3b-instruct:free",

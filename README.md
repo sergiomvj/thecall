@@ -42,3 +42,5 @@ Client runs on `http://localhost:3000` and the API on `http://localhost:3001`.
 3. modelos de baixo custo em `OPENROUTER_LOW_COST_MODELS` quando `OPENROUTER_USE_LOW_COST_MODELS=true`
 
 Isso ajuda quando os modelos free ficam saturados, mas a terceira camada pode gerar cobranca na conta OpenRouter.
+
+Se algum modelo free for descontinuado e retornar `404` por deprecacao, o backend agora ignora esse modelo e continua no proximo fallback.
