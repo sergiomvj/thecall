@@ -16,6 +16,7 @@ model Persona {
   behavior              String
   competenciesJson      String
   sourcePrompt          String
+  inputSkillOptional    String?
   normalizedFingerprint String
   similarityScoreMax    Float               @default(0)
   status                String

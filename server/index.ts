@@ -14,7 +14,7 @@ import {
   buildInputFingerprint,
   type CandidatePersona,
 } from "./services/persona-similarity.ts";
-import { generatePersonaProfile } from "./services/openrouter.ts";
+import { generatePersonaProfile } from "./services/openai.ts";
 
 loadEnv({ path: ".env.local", override: false });
 loadEnv();
@@ -65,6 +65,72 @@ function parseCompetenciesJson(value: string): string[] {
       : [];
   } catch {
     return [];
+  }
+}
+
+const personaExportColumns = [
+  "input_name",
+  "input_function",
+  "input_skill_optional",
+  "id",
+  "name",
+  "role",
+  "psychology",
+  "behavior",
+  "competenciesJson",
+  "background",
+  "sourcePrompt",
+  "normalizedFingerprint",
+  "similarityScoreMax",
+  "status",
+  "createdAt",
+  "updatedAt",
+  "avatarUrl",
+  "avatarPrompt",
+  "generationModel",
+  "avatarModel",
+  "rejectionReason",
+  "similarityDecision",
+  "similarityReasons",
+  "comparedPersonaId",
+  "blockingThreshold",
+  "provisioningReady",
+] as const;
+
+type ExportColumn = (typeof personaExportColumns)[number];
+
+function getSimilarityDecision(score: number): "allow" | "warn" | "block" {
+  if (score >= 0.75) {
+    return "block";
+  }
+
+  if (score >= 0.55) {
+    return "warn";
+  }
+
+  return "allow";
+}
+
+function escapeCsvValue(value: unknown): string {
+  if (value === null || value === undefined) {
+    return "";
+  }
+
+  const normalized =
+    value instanceof Date ? value.toISOString() : typeof value === "string" ? value : String(value);
+
+  return `"${normalized.replace(/"/g, '""')}"`;
+}
+
+async function ensureRuntimeSchema() {
+  const columns = (await prisma.$queryRawUnsafe<Array<{ name: string }>>(
+    `PRAGMA table_info("Persona")`
+  )).map((column) => column.name);
+
+  if (!columns.includes("inputSkillOptional")) {
+    await prisma.$executeRawUnsafe(
+      `ALTER TABLE "Persona" ADD COLUMN "inputSkillOptional" TEXT`
+    );
   }
 }
 
@@ -191,6 +257,37 @@ async function generateAvatarForPersona(personaId: string) {
   return updatedPersona;
 }
 
+async function deleteFailedPersona(personaId: string) {
+  const persona = await prisma.persona.findUnique({
+    where: { id: personaId },
+  });
+
+  if (!persona) {
+    return { kind: "not_found" as const };
+  }
+
+  if (persona.status !== "FAILED") {
+    return { kind: "invalid_status" as const, status: persona.status };
+  }
+
+  await prisma.persona.delete({
+    where: { id: personaId },
+  });
+
+  if (persona.avatarUrl?.startsWith("/uploads/avatars/")) {
+    const fileName = persona.avatarUrl.replace("/uploads/avatars/", "");
+    const filePath = path.join(uploadsDir, fileName);
+
+    try {
+      await fs.unlink(filePath);
+    } catch {
+      // Ignore missing files; the DB record is the source of truth here.
+    }
+  }
+
+  return { kind: "deleted" as const };
+}
+
 app.get("/api/health", asyncHandler(async (_request, response) => {
   await prisma.$queryRaw`SELECT 1`;
   response.json({ ok: true });
@@ -206,11 +303,89 @@ app.get("/api/personas", asyncHandler(async (_request, response) => {
   });
 }));
 
+app.get("/api/personas/export.csv", asyncHandler(async (_request, response) => {
+  const personas = await prisma.persona.findMany({
+    where: {
+      status: {
+        in: ["GENERATED", "AVATAR_PENDING", "READY"],
+      },
+    },
+    orderBy: { createdAt: "desc" },
+    include: {
+      similaritiesFrom: {
+        orderBy: { score: "desc" },
+        take: 1,
+      },
+    },
+  });
+
+  const header = personaExportColumns.join(",");
+  const rows = personas.map((persona) =>
+    personaExportColumns
+      .map((column) => {
+        const topSimilarity = persona.similaritiesFrom[0];
+        const similarityDecision = getSimilarityDecision(persona.similarityScoreMax);
+        const provisioningReady =
+          (persona.status === "GENERATED" ||
+            persona.status === "AVATAR_PENDING" ||
+            persona.status === "READY") &&
+          similarityDecision !== "block";
+
+        const exportRow: Record<ExportColumn, unknown> = {
+          input_name: persona.name,
+          input_function: persona.background,
+          input_skill_optional: persona.inputSkillOptional ?? "",
+          id: persona.id,
+          name: persona.name,
+          role: persona.role,
+          psychology: persona.psychology,
+          behavior: persona.behavior,
+          competenciesJson: persona.competenciesJson,
+          background: persona.background,
+          sourcePrompt: persona.sourcePrompt,
+          normalizedFingerprint: persona.normalizedFingerprint,
+          similarityScoreMax: persona.similarityScoreMax,
+          status: persona.status,
+          createdAt: persona.createdAt.toISOString(),
+          updatedAt: persona.updatedAt.toISOString(),
+          avatarUrl: persona.avatarUrl,
+          avatarPrompt: persona.avatarPrompt,
+          generationModel: persona.generationModel,
+          avatarModel: persona.avatarModel,
+          rejectionReason: persona.rejectionReason,
+          similarityDecision,
+          similarityReasons:
+            topSimilarity?.reason ??
+            (similarityDecision === "allow"
+              ? "Similarity is within an acceptable range"
+              : ""),
+          comparedPersonaId: topSimilarity?.comparedPersonaId ?? "",
+          blockingThreshold: topSimilarity?.blockingThreshold ?? "",
+          provisioningReady,
+        };
+
+        return escapeCsvValue(exportRow[column]);
+      })
+      .join(",")
+  );
+
+  response.setHeader("Content-Type", "text/csv; charset=utf-8");
+  response.setHeader(
+    "Content-Disposition",
+    'attachment; filename="thecall-personas-export.csv"'
+  );
+  response.send([header, ...rows].join("\n"));
+}));
+
 app.post("/api/personas", asyncHandler(async (request, response) => {
   const name = typeof request.body?.name === "string" ? request.body.name.trim() : "";
   const background =
     typeof request.body?.background === "string"
       ? request.body.background.trim()
+      : "";
+  const inputSkillOptional =
+    typeof request.body?.competencies === "string"
+      ? request.body.competencies.trim()
       : "";
   const competencies = parseCompetencies(request.body?.competencies);
 
@@ -300,6 +475,7 @@ app.post("/api/personas", asyncHandler(async (request, response) => {
         behavior: generation.behavior,
         competenciesJson: JSON.stringify(generation.competencies),
         sourcePrompt: generation.prompt,
+        inputSkillOptional: inputSkillOptional || null,
         normalizedFingerprint: finalCandidate.fingerprint,
         similarityScoreMax: finalSimilarity.maxScore,
         status: env.GEMINI_API_KEY ? "AVATAR_PENDING" : "GENERATED",
@@ -382,6 +558,27 @@ app.post("/api/personas/:id/avatar", async (request, response) => {
   }
 });
 
+app.delete("/api/personas/:id", asyncHandler(async (request, response) => {
+  const personaId = request.params.id;
+  const result = await deleteFailedPersona(personaId);
+
+  if (result.kind === "not_found") {
+    response.status(404).json({
+      error: "Persona not found.",
+    });
+    return;
+  }
+
+  if (result.kind === "invalid_status") {
+    response.status(409).json({
+      error: `Only FAILED personas can be deleted. Current status: ${result.status}.`,
+    });
+    return;
+  }
+
+  response.status(204).send();
+}));
+
 app.use(
   (
     error: unknown,
@@ -413,6 +610,7 @@ app.get("*", asyncHandler(async (request, response, next) => {
 async function main() {
   await fs.mkdir(uploadsDir, { recursive: true });
   await prisma.$connect();
+  await ensureRuntimeSchema();
 
   app.listen(env.PORT, () => {
     console.log(`Server listening on http://localhost:${env.PORT}`);

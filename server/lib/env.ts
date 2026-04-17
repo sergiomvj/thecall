@@ -8,6 +8,15 @@ export const env = {
   get DATABASE_URL() {
     return process.env.DATABASE_URL ?? "file:./prisma/dev.db";
   },
+  get OPENAI_API_KEY() {
+    return process.env.OPENAI_API_KEY ?? "";
+  },
+  get OPENAI_MODEL() {
+    return process.env.OPENAI_MODEL ?? "gpt-4o-mini";
+  },
+  get OPENAI_TIMEOUT_MS() {
+    return Number(process.env.OPENAI_TIMEOUT_MS ?? 60000);
+  },
   get OPENROUTER_API_KEY() {
     return process.env.OPENROUTER_API_KEY ?? "";
   },
@@ -47,6 +56,9 @@ export const env = {
       .split(",")
       .map((model) => model.trim())
       .filter(Boolean);
+  },
+  get OPENROUTER_TIMEOUT_MS() {
+    return Number(process.env.OPENROUTER_TIMEOUT_MS ?? 60000);
   },
   get GEMINI_API_KEY() {
     return process.env.GEMINI_API_KEY ?? "";

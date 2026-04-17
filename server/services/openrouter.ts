@@ -19,6 +19,10 @@ interface PersonaProfile {
 
 function getErrorMessage(error: unknown): string {
   if (error instanceof Error) {
+    if (error.name === "TimeoutError" || error.name === "AbortError") {
+      return "Request timed out while waiting for OpenRouter";
+    }
+
     const causeMessage =
       typeof error.cause === "object" &&
       error.cause !== null &&
@@ -111,7 +115,7 @@ export async function generatePersonaProfile(
   input: GeneratePersonaProfileInput
 ): Promise<PersonaProfile> {
   const prompt = `
-You generate differentiated professional personas for sales, positioning, and business profile use.
+You generate differentiated professional personas for business, staffing, positioning, and virtual employee profile use.
 
 Existing personas in the database:
 ${input.previousPersonasSummary}
@@ -119,20 +123,27 @@ ${input.previousPersonasSummary}
 If there are similarity warnings, avoid them explicitly:
 ${input.diversityWarnings.length > 0 ? input.diversityWarnings.join("; ") : "No active warnings."}
 
-Create a persona for:
+Create a persona using this exact user input:
 - Name: ${input.name}
-- Background: ${input.background}
-- Candidate competencies: ${input.competencies.join(", ") || "none provided"}
+- Function: ${input.background}
+- Optional skill input: ${input.competencies.join(", ") || "none provided"}
 
 Requirements:
 - Keep the persona business-ready and believable.
 - Make the role distinct from existing personas.
+- The role must sound specific and professional, not generic.
+- Psychology must be concrete, useful, and non-fluffy.
+- Behavior must describe how the persona acts at work, makes decisions, communicates, and executes.
+- Competencies must be practical, work-related, and internally coherent with the function.
 - Vary the niche, communication style, and strengths when similarity risk is high.
 - Return valid JSON only.
+- Do not wrap the JSON in markdown fences.
+- Do not include extra keys.
+- Do not use placeholders.
 - Use this exact schema:
 {
   "role": "short professional title",
-  "psychology": "2 compact paragraphs",
+  "psychology": "2 compact but specific paragraphs",
   "competencies": ["5 to 6 competencies"],
   "behavior": "1 paragraph"
 }
@@ -156,11 +167,14 @@ Requirements:
         body: JSON.stringify({
           model,
           temperature: 0.8,
+          response_format: {
+            type: "json_object",
+          },
           messages: [
             {
               role: "system",
               content:
-                "You are a productized persona generator. Output JSON only and keep personas differentiated.",
+                "You are a production persona generator. Output strict JSON only, keep personas differentiated, and prefer precise business language over vague marketing copy.",
             },
             {
               role: "user",
@@ -168,7 +182,7 @@ Requirements:
             },
           ],
         }),
-        signal: AbortSignal.timeout(30_000),
+        signal: AbortSignal.timeout(env.OPENROUTER_TIMEOUT_MS),
       });
     } catch (error) {
       attemptErrors.push(`${model}: network error (${getErrorMessage(error)})`);
@@ -241,6 +255,6 @@ Requirements:
   }
 
   throw new Error(
-    `OpenRouter failed across all configured free models. Attempts: ${attemptErrors.join(" | ")}`
+    `OpenRouter failed across all configured models. Attempts: ${attemptErrors.join(" | ")}`
   );
 }

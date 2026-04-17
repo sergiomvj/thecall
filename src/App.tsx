@@ -4,6 +4,7 @@ import {
   Brain,
   Briefcase,
   Database,
+  Download,
   History,
   ImagePlus,
   Loader2,
@@ -11,6 +12,7 @@ import {
   RefreshCw,
   ShieldCheck,
   Terminal,
+  Trash2,
   User,
   Zap,
 } from "lucide-react";
@@ -127,6 +129,7 @@ export default function App() {
   const [avatarLoadingIds, setAvatarLoadingIds] = useState<Record<string, boolean>>(
     {}
   );
+  const [deletingPersonaId, setDeletingPersonaId] = useState<string | null>(null);
 
   const selectedPersona =
     personas.find((persona) => persona.id === selectedPersonaId) ?? null;
@@ -161,6 +164,11 @@ export default function App() {
         persona.id === nextPersona.id ? nextPersona : persona
       );
     });
+  }
+
+  function removePersona(personaId: string) {
+    setPersonas((current) => current.filter((persona) => persona.id !== personaId));
+    setSelectedPersonaId((current) => (current === personaId ? null : current));
   }
 
   async function triggerAvatar(personaId: string) {
@@ -239,6 +247,27 @@ export default function App() {
     }
   }
 
+  async function deleteFailedPersona(personaId: string) {
+    setDeletingPersonaId(personaId);
+    setErrorMessage(null);
+
+    try {
+      await apiFetch<void>(`/api/personas/${personaId}`, {
+        method: "DELETE",
+      });
+
+      removePersona(personaId);
+    } catch (error) {
+      console.error("Failed to delete persona:", error);
+      const typedError = error as Error;
+      setErrorMessage(
+        typedError.message || "Nao foi possivel excluir a persona com erro."
+      );
+    } finally {
+      setDeletingPersonaId(null);
+    }
+  }
+
   return (
     <div className="min-h-screen bg-[#0F0F11] text-[#E0E0E6] font-mono selection:bg-[#F27D26] selection:text-white overflow-hidden flex flex-col">
       <header className="border-b border-[#26262B] p-4 flex items-center justify-between bg-[#15151A]">
@@ -251,6 +280,13 @@ export default function App() {
           </h1>
         </div>
         <div className="flex items-center gap-6 text-[10px] text-[#8E9299]">
+          <a
+            href="/api/personas/export.csv"
+            className="flex items-center gap-2 text-[#E0E0E6] hover:text-[#F27D26] transition-colors"
+          >
+            <Download className="w-3 h-3" />
+            <span>EXPORT CSV</span>
+          </a>
           <div className="flex items-center gap-2">
             <Database className="w-3 h-3" />
             <span>PRISMA ONLINE</span>
@@ -414,6 +450,25 @@ export default function App() {
                           </>
                         )}
                       </button>
+                      {selectedPersona.status === "FAILED" && (
+                        <button
+                          onClick={() => void deleteFailedPersona(selectedPersona.id)}
+                          disabled={deletingPersonaId === selectedPersona.id}
+                          className="w-full mb-4 bg-[#2A1316] border border-[#5A2329] h-9 rounded text-[10px] font-bold tracking-wider hover:border-[#FF6B6B] hover:text-[#FFB3B3] transition-colors disabled:opacity-40 flex items-center justify-center gap-2 text-[#FF8080]"
+                        >
+                          {deletingPersonaId === selectedPersona.id ? (
+                            <>
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                              EXCLUINDO ERRO
+                            </>
+                          ) : (
+                            <>
+                              <Trash2 className="w-4 h-4" />
+                              EXCLUIR COM ERRO
+                            </>
+                          )}
+                        </button>
+                      )}
                       <div className="space-y-2 mt-auto">
                         <div className="flex items-center justify-between text-[10px] border-b border-[#26262B] pb-1">
                           <span className="opacity-40">GEN_ID</span>
@@ -506,26 +561,26 @@ export default function App() {
                 </div>
                 <div className="md:col-span-1">
                   <label className="text-[9px] font-bold uppercase mb-2 block opacity-40">
-                    Background
+                    Funcao
                   </label>
                   <input
                     type="text"
                     value={background}
                     onChange={(event) => setBackground(event.target.value)}
                     className="w-full bg-[#1A1A1F] border border-[#26262B] p-2 text-xs focus:border-[#F27D26] outline-none rounded"
-                    placeholder="e.g. B2B SaaS Growth Strategist"
+                    placeholder="e.g. SDR Enterprise, Closer B2B, Assistente Comercial"
                   />
                 </div>
                 <div className="md:col-span-1">
                   <label className="text-[9px] font-bold uppercase mb-2 block opacity-40">
-                    Skills (Optional)
+                    Habilidade (Opcional)
                   </label>
                   <input
                     type="text"
                     value={competencies}
                     onChange={(event) => setCompetencies(event.target.value)}
                     className="w-full bg-[#1A1A1F] border border-[#26262B] p-2 text-xs focus:border-[#F27D26] outline-none rounded"
-                    placeholder="e.g. CRM, GTM, Negotiation"
+                    placeholder="e.g. CRM, Negociacao, Follow-up"
                   />
                 </div>
                 <button
