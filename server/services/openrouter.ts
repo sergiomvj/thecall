@@ -14,6 +14,23 @@ interface PersonaProfile {
   competencies: string[];
   behavior: string;
   prompt: string;
+  model: string;
+}
+
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    const causeMessage =
+      typeof error.cause === "object" &&
+      error.cause !== null &&
+      "message" in error.cause &&
+      typeof error.cause.message === "string"
+        ? error.cause.message
+        : null;
+
+    return causeMessage ? `${error.message}: ${causeMessage}` : error.message;
+  }
+
+  return String(error);
 }
 
 function extractJsonObject(raw: string): string {
@@ -42,6 +59,39 @@ function sanitizeCompetencies(value: unknown): string[] {
     .map((item) => item.trim())
     .filter(Boolean)
     .slice(0, 6);
+}
+
+function getModelCandidates(): string[] {
+  const lowCostModels = env.OPENROUTER_USE_LOW_COST_MODELS
+    ? env.OPENROUTER_LOW_COST_MODELS
+    : [];
+
+  return [
+    env.OPENROUTER_MODEL,
+    ...env.OPENROUTER_FALLBACK_MODELS,
+    ...lowCostModels,
+  ].filter((model, index, list) => list.indexOf(model) === index);
+}
+
+function parseResponseError(responseBody: string): string {
+  try {
+    const parsed = JSON.parse(responseBody) as {
+      error?: {
+        message?: string;
+        metadata?: {
+          raw?: string;
+        };
+      };
+    };
+
+    return (
+      parsed.error?.metadata?.raw ??
+      parsed.error?.message ??
+      responseBody
+    );
+  } catch {
+    return responseBody;
+  }
 }
 
 export async function generatePersonaProfile(
@@ -75,74 +125,106 @@ Requirements:
 }
 `.trim();
 
-  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${env.OPENROUTER_API_KEY}`,
-      "Content-Type": "application/json",
-      "HTTP-Referer": env.APP_URL,
-      "X-Title": "TheCall Persona Generator",
-    },
-    body: JSON.stringify({
-      model: env.OPENROUTER_MODEL,
-      temperature: 0.8,
-      messages: [
-        {
-          role: "system",
-          content:
-            "You are a productized persona generator. Output JSON only and keep personas differentiated.",
-        },
-        {
-          role: "user",
-          content: prompt,
-        },
-      ],
-    }),
-  });
+  const models = getModelCandidates();
+  const attemptErrors: string[] = [];
 
-  const responseBody = await response.text();
-  if (!response.ok) {
-    throw new Error(
-      `OpenRouter request failed with status ${response.status}: ${responseBody.slice(0, 300)}`
-    );
-  }
+  for (const model of models) {
+    let response: Response;
 
-  const parsedBody = JSON.parse(responseBody) as {
-    choices?: Array<{
-      message?: {
-        content?: string;
+    try {
+      response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${env.OPENROUTER_API_KEY}`,
+          "Content-Type": "application/json",
+          "HTTP-Referer": env.APP_URL,
+          "X-Title": "TheCall Persona Generator",
+        },
+        body: JSON.stringify({
+          model,
+          temperature: 0.8,
+          messages: [
+            {
+              role: "system",
+              content:
+                "You are a productized persona generator. Output JSON only and keep personas differentiated.",
+            },
+            {
+              role: "user",
+              content: prompt,
+            },
+          ],
+        }),
+        signal: AbortSignal.timeout(30_000),
+      });
+    } catch (error) {
+      attemptErrors.push(`${model}: network error (${getErrorMessage(error)})`);
+      continue;
+    }
+
+    const responseBody = await response.text();
+    if (!response.ok) {
+      const errorSummary = parseResponseError(responseBody).slice(0, 300);
+      const shouldFallback = response.status === 429 || response.status >= 500;
+
+      if (shouldFallback) {
+        attemptErrors.push(`${model}: status ${response.status} (${errorSummary})`);
+        continue;
+      }
+
+      throw new Error(
+        `OpenRouter request failed on ${model} with status ${response.status}: ${errorSummary}`
+      );
+    }
+
+    const parsedBody = JSON.parse(responseBody) as {
+      choices?: Array<{
+        message?: {
+          content?: string;
+        };
+      }>;
+    };
+
+    const content = parsedBody.choices?.[0]?.message?.content;
+    if (!content) {
+      attemptErrors.push(`${model}: empty completion`);
+      continue;
+    }
+
+    try {
+      const payload = JSON.parse(extractJsonObject(content)) as {
+        role?: unknown;
+        psychology?: unknown;
+        competencies?: unknown;
+        behavior?: unknown;
       };
-    }>;
-  };
 
-  const content = parsedBody.choices?.[0]?.message?.content;
-  if (!content) {
-    throw new Error("OpenRouter returned an empty completion.");
+      const role = typeof payload.role === "string" ? payload.role.trim() : "";
+      const psychology =
+        typeof payload.psychology === "string" ? payload.psychology.trim() : "";
+      const behavior =
+        typeof payload.behavior === "string" ? payload.behavior.trim() : "";
+      const competencies = sanitizeCompetencies(payload.competencies);
+
+      if (!role || !psychology || !behavior || competencies.length < 3) {
+        attemptErrors.push(`${model}: incomplete persona payload`);
+        continue;
+      }
+
+      return {
+        role,
+        psychology,
+        behavior,
+        competencies,
+        prompt,
+        model,
+      };
+    } catch (error) {
+      attemptErrors.push(`${model}: invalid JSON payload (${getErrorMessage(error)})`);
+    }
   }
 
-  const payload = JSON.parse(extractJsonObject(content)) as {
-    role?: unknown;
-    psychology?: unknown;
-    competencies?: unknown;
-    behavior?: unknown;
-  };
-
-  const role = typeof payload.role === "string" ? payload.role.trim() : "";
-  const psychology =
-    typeof payload.psychology === "string" ? payload.psychology.trim() : "";
-  const behavior =
-    typeof payload.behavior === "string" ? payload.behavior.trim() : "";
-  const competencies = sanitizeCompetencies(payload.competencies);
-
-  if (!role || !psychology || !behavior || competencies.length < 3) {
-    throw new Error("OpenRouter returned an incomplete persona payload.");
-  }
-
-  return {
-    role,
-    psychology,
-    behavior,
-    competencies,
-    prompt,
-  };
+  throw new Error(
+    `OpenRouter failed across all configured free models. Attempts: ${attemptErrors.join(" | ")}`
+  );
 }

@@ -303,7 +303,7 @@ app.post("/api/personas", asyncHandler(async (request, response) => {
         normalizedFingerprint: finalCandidate.fingerprint,
         similarityScoreMax: finalSimilarity.maxScore,
         status: env.GEMINI_API_KEY ? "AVATAR_PENDING" : "GENERATED",
-        generationModel: env.OPENROUTER_MODEL,
+        generationModel: generation.model,
       },
     });
 
@@ -312,10 +312,11 @@ app.post("/api/personas", asyncHandler(async (request, response) => {
         personaId: persona.id,
         kind: "text",
         provider: "openrouter",
-        model: env.OPENROUTER_MODEL,
+        model: generation.model,
         promptHash,
         success: true,
         responseExcerpt: JSON.stringify({
+          model: generation.model,
           role: generation.role,
           competencies: generation.competencies,
         }),
