@@ -1,0 +1,68 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model Persona {
+  id                    String              @id @default(cuid())
+  name                  String
+  background            String
+  role                  String
+  psychology            String
+  behavior              String
+  competenciesJson      String
+  sourcePrompt          String
+  normalizedFingerprint String
+  similarityScoreMax    Float               @default(0)
+  status                String
+  avatarUrl             String?
+  avatarPrompt          String?
+  generationModel       String?
+  avatarModel           String?
+  rejectionReason       String?
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
+  generationLogs        GenerationLog[]
+  similaritiesFrom      PersonaSimilarity[] @relation("SimilaritySource")
+  similaritiesTo        PersonaSimilarity[] @relation("SimilarityTarget")
+
+  @@index([createdAt])
+  @@index([normalizedFingerprint])
+  @@index([status])
+}
+
+model PersonaSimilarity {
+  id                String   @id @default(cuid())
+  sourcePersonaId   String
+  comparedPersonaId String
+  score             Float
+  reason            String
+  blockingThreshold Float?
+  createdAt         DateTime @default(now())
+  sourcePersona     Persona  @relation("SimilaritySource", fields: [sourcePersonaId], references: [id], onDelete: Cascade)
+  comparedPersona   Persona  @relation("SimilarityTarget", fields: [comparedPersonaId], references: [id], onDelete: Cascade)
+
+  @@index([sourcePersonaId])
+  @@index([comparedPersonaId])
+}
+
+model GenerationLog {
+  id              String   @id @default(cuid())
+  personaId       String
+  kind            String
+  provider        String
+  model           String
+  promptHash      String
+  success         Boolean
+  responseExcerpt String?
+  errorMessage    String?
+  latencyMs       Int?
+  createdAt       DateTime @default(now())
+  persona         Persona  @relation(fields: [personaId], references: [id], onDelete: Cascade)
+
+  @@index([personaId, createdAt])
+}

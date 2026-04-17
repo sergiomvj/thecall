@@ -7,4 +7,6 @@ coverage/
 .env*
 !.env.example
 .env.local
-
+prisma/*.db
+prisma/*.db-journal
+storage/
