@@ -87,10 +87,20 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   });
 
   const text = await response.text();
-  const data = text ? JSON.parse(text) : {};
+  let data: { error?: string; [key: string]: unknown } = {};
+
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = {
+        error: text,
+      };
+    }
+  }
 
   if (!response.ok) {
-    const error = new Error(data?.error ?? "Request failed") as Error & {
+    const error = new Error(data.error ?? "Request failed") as Error & {
       status?: number;
       data?: unknown;
     };
@@ -337,7 +347,7 @@ export default function App() {
             </div>
           )}
 
-          <div className="flex-1 overflow-y-auto p-4 custom-scrollbar bg-[url('https://grainy-gradients.vercel.app/noise.svg')] bg-repeat">
+          <div className="flex-1 overflow-y-auto p-4 custom-scrollbar bg-[radial-gradient(circle_at_top,_rgba(242,125,38,0.12),_transparent_32%),linear-gradient(180deg,_rgba(21,21,26,0.96),_rgba(15,15,17,1))]">
             <AnimatePresence mode="wait">
               {selectedPersona ? (
                 <motion.div

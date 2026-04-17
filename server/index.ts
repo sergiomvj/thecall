@@ -27,6 +27,18 @@ const uploadsDir = path.join(rootDir, "storage", "avatars");
 app.use(express.json({ limit: "2mb" }));
 app.use("/uploads", express.static(path.join(rootDir, "storage")));
 
+function asyncHandler(
+  handler: (
+    request: express.Request,
+    response: express.Response,
+    next: express.NextFunction
+  ) => Promise<void>
+) {
+  return (request: express.Request, response: express.Response, next: express.NextFunction) => {
+    void handler(request, response, next).catch(next);
+  };
+}
+
 function parseCompetencies(value: unknown): string[] {
   if (typeof value !== "string") {
     return [];
@@ -177,12 +189,12 @@ async function generateAvatarForPersona(personaId: string) {
   return updatedPersona;
 }
 
-app.get("/api/health", async (_request, response) => {
+app.get("/api/health", asyncHandler(async (_request, response) => {
   await prisma.$queryRaw`SELECT 1`;
   response.json({ ok: true });
-});
+}));
 
-app.get("/api/personas", async (_request, response) => {
+app.get("/api/personas", asyncHandler(async (_request, response) => {
   const personas = await prisma.persona.findMany({
     orderBy: { createdAt: "desc" },
   });
@@ -190,9 +202,9 @@ app.get("/api/personas", async (_request, response) => {
   response.json({
     personas: personas.map((persona) => toPersonaDto(persona)),
   });
-});
+}));
 
-app.post("/api/personas", async (request, response) => {
+app.post("/api/personas", asyncHandler(async (request, response) => {
   const name = typeof request.body?.name === "string" ? request.body.name.trim() : "";
   const background =
     typeof request.body?.background === "string"
@@ -327,7 +339,7 @@ app.post("/api/personas", async (request, response) => {
     persona: toPersonaDto(createdPersona),
     similarity: finalSimilarity,
   });
-});
+}));
 
 app.post("/api/personas/:id/avatar", async (request, response) => {
   const personaId = request.params.id;
