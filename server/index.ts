@@ -140,6 +140,43 @@ function escapeCsvValue(value: unknown): string {
   return `"${normalized.replace(/"/g, '""')}"`;
 }
 
+function toFileNameSlug(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+}
+
+function dedupePersonasForExport<
+  T extends {
+    id: string;
+    name: string;
+    background: string;
+    normalizedFingerprint: string;
+  },
+>(personas: T[]): T[] {
+  const seen = new Set<string>();
+  const deduped: T[] = [];
+
+  for (const persona of personas) {
+    const dedupeKey =
+      persona.normalizedFingerprint.trim() ||
+      `${persona.name.trim().toLowerCase()}::${persona.background.trim().toLowerCase()}`;
+
+    if (seen.has(dedupeKey)) {
+      continue;
+    }
+
+    seen.add(dedupeKey);
+    deduped.push(persona);
+  }
+
+  return deduped;
+}
+
 async function ensureRuntimeSchema() {
   const columns = (await prisma.$queryRawUnsafe<Array<{ name: string }>>(
     `PRAGMA table_info("Persona")`
@@ -508,8 +545,9 @@ app.get("/api/personas/export.csv", asyncHandler(async (_request, response) => {
     ORDER BY p."createdAt" DESC`
   );
 
+  const exportablePersonas = dedupePersonasForExport(personas);
   const header = personaExportColumns.join(",");
-  const rows = personas.map((persona) =>
+  const rows = exportablePersonas.map((persona) =>
     personaExportColumns
       .map((column) => {
         const similarityDecision = getSimilarityDecision(persona.similarityScoreMax);
@@ -581,9 +619,13 @@ app.get("/api/personas/export.csv", asyncHandler(async (_request, response) => {
   );
 
   response.setHeader("Content-Type", "text/csv; charset=utf-8");
+  const fileName =
+    exportablePersonas.length === 1
+      ? `${toFileNameSlug(exportablePersonas[0].name || "persona") || "persona"}.csv`
+      : "thecall-personas-export.csv";
   response.setHeader(
     "Content-Disposition",
-    'attachment; filename="thecall-personas-export.csv"'
+    `attachment; filename="${fileName}"`
   );
   response.send([header, ...rows].join("\n"));
 }));
