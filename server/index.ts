@@ -683,7 +683,7 @@ app.post("/api/personas", asyncHandler(async (request, response) => {
         "id","name","background","role","shortDescription","motto","age","city","maritalStatus","nationality","languagesJson",
         "psychology","behavior","appearance","clothingStyle","hobbiesJson","education","masteredTopicsJson","familiarToolsJson",
         "competenciesJson","sourcePrompt","inputSkillOptional","normalizedFingerprint","similarityScoreMax","status","generationModel","avatarPrompt"
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       personaId,
       name,
       background,
