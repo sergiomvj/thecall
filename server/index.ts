@@ -230,6 +230,61 @@ function toIsoString(value: string | Date): string {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
 }
 
+function buildCanonicalAvatarPrompt(persona: {
+  name: string;
+  role: string;
+  age: number | null;
+  city: string | null;
+  maritalStatus: string | null;
+  nationality: string | null;
+  appearance: string | null;
+  clothingStyle: string | null;
+  psychology: string;
+  behavior: string;
+  background: string;
+  competenciesJson: string;
+  languagesJson: string | null;
+  hobbiesJson: string | null;
+  shortDescription: string | null;
+  motto: string | null;
+}): string {
+  const competencies = parseJsonArray(persona.competenciesJson);
+  const languages = parseJsonArray(persona.languagesJson);
+  const hobbies = parseJsonArray(persona.hobbiesJson);
+
+  return [
+    `Canonical visual identity for the agent "${persona.name}".`,
+    `This description must define the same person consistently across solo portraits, workplace scenes, and group scenes with other agents.`,
+    `Professional identity: ${persona.role}.`,
+    `Business context: ${persona.background}.`,
+    persona.shortDescription ? `Short description: ${persona.shortDescription}.` : "",
+    persona.motto ? `Personal motto: ${persona.motto}.` : "",
+    persona.age ? `Apparent age: ${persona.age} years old.` : "",
+    persona.nationality ? `Nationality: ${persona.nationality}.` : "",
+    persona.city ? `Lives in: ${persona.city}.` : "",
+    persona.maritalStatus ? `Marital status: ${persona.maritalStatus}.` : "",
+    languages.length > 0 ? `Languages: ${languages.join(", ")}.` : "",
+    persona.appearance
+      ? `Canonical physical appearance: ${persona.appearance}.`
+      : "",
+    persona.clothingStyle
+      ? `Canonical clothing style: ${persona.clothingStyle}.`
+      : "",
+    competencies.length > 0
+      ? `Professional strengths that should subtly inform posture and presence: ${competencies.join(", ")}.`
+      : "",
+    hobbies.length > 0
+      ? `Personal interests that may lightly influence styling details without changing identity: ${hobbies.join(", ")}.`
+      : "",
+    `Psychological tone: ${persona.psychology.slice(0, 400)}.`,
+    `Behavioral style: ${persona.behavior.slice(0, 320)}.`,
+    `Guardrails: preserve the same facial identity, apparent age, skin tone, facial structure, hair characteristics, body presence, and wardrobe signature across all future image generations.`,
+    `Output intent: realistic human professional, premium but believable, never cartoonish, never generic, never inconsistent between scenes.`,
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
 async function listPersonas(): Promise<PersonaRecord[]> {
   return prisma.$queryRawUnsafe<PersonaRecord[]>(
     `SELECT * FROM "Persona" ORDER BY "createdAt" DESC`
@@ -304,17 +359,32 @@ async function generateAvatarForPersona(personaId: string) {
     throw new Error("Persona not found.");
   }
 
-  const competencies = parseCompetenciesJson(persona.competenciesJson);
+  const canonicalAvatarPrompt =
+    persona.avatarPrompt ||
+    buildCanonicalAvatarPrompt({
+      name: persona.name,
+      role: persona.role,
+      age: persona.age,
+      city: persona.city,
+      maritalStatus: persona.maritalStatus,
+      nationality: persona.nationality,
+      appearance: persona.appearance,
+      clothingStyle: persona.clothingStyle,
+      psychology: persona.psychology,
+      behavior: persona.behavior,
+      background: persona.background,
+      competenciesJson: persona.competenciesJson,
+      languagesJson: persona.languagesJson,
+      hobbiesJson: persona.hobbiesJson,
+      shortDescription: persona.shortDescription,
+      motto: persona.motto,
+    });
   const avatarPrompt = [
-    `Create a polished professional avatar portrait for a business profile.`,
-    `Subject name: ${persona.name}.`,
-    `Professional role: ${persona.role}.`,
-    `Background and niche: ${persona.background}.`,
-    `Core strengths: ${competencies.join(", ")}.`,
-    `Psychological tone: ${persona.psychology.slice(0, 400)}.`,
-    `Behavioral style: ${persona.behavior.slice(0, 240)}.`,
-    `Visual direction: editorial headshot, natural skin texture, realistic lighting, clean wardrobe, confident posture, premium but believable, centered composition, neutral or office-inspired background, suitable for LinkedIn or executive bio.`,
-    `Avoid: text, watermark, fantasy styling, exaggerated cinematic effects, distorted hands, duplicate faces, cartoon look, low resolution.`,
+    canonicalAvatarPrompt,
+    `Scene: polished professional avatar portrait for a business profile.`,
+    `Framing: editorial headshot, centered composition, direct and confident posture.`,
+    `Rendering: natural skin texture, realistic lighting, premium but believable finish, neutral or office-inspired background, suitable for LinkedIn or executive bio.`,
+    `Avoid: text, watermark, fantasy styling, exaggerated cinematic effects, distorted anatomy, duplicate faces, cartoon look, low resolution.`,
   ].join(" ");
 
   const ai = new GoogleGenAI({ apiKey: env.GEMINI_API_KEY });
@@ -342,7 +412,7 @@ async function generateAvatarForPersona(personaId: string) {
       where: { id: persona.id },
       data: {
         avatarUrl: `/uploads/avatars/${fileName}`,
-        avatarPrompt,
+        avatarPrompt: canonicalAvatarPrompt,
         avatarModel: env.GEMINI_AVATAR_MODEL,
         status: "READY",
       },
@@ -612,8 +682,8 @@ app.post("/api/personas", asyncHandler(async (request, response) => {
       `INSERT INTO "Persona" (
         "id","name","background","role","shortDescription","motto","age","city","maritalStatus","nationality","languagesJson",
         "psychology","behavior","appearance","clothingStyle","hobbiesJson","education","masteredTopicsJson","familiarToolsJson",
-        "competenciesJson","sourcePrompt","inputSkillOptional","normalizedFingerprint","similarityScoreMax","status","generationModel"
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        "competenciesJson","sourcePrompt","inputSkillOptional","normalizedFingerprint","similarityScoreMax","status","generationModel","avatarPrompt"
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       personaId,
       name,
       background,
@@ -639,7 +709,25 @@ app.post("/api/personas", asyncHandler(async (request, response) => {
       finalCandidate.fingerprint,
       finalSimilarity.maxScore,
       env.GEMINI_API_KEY ? "AVATAR_PENDING" : "GENERATED",
-      generation.model
+      generation.model,
+      buildCanonicalAvatarPrompt({
+        name,
+        role: generation.role,
+        age: generation.age,
+        city: generation.city,
+        maritalStatus: generation.maritalStatus,
+        nationality: generation.nationality,
+        appearance: generation.appearance,
+        clothingStyle: generation.clothingStyle,
+        psychology: generation.psychology,
+        behavior: generation.behavior,
+        background,
+        competenciesJson: JSON.stringify(generation.competencies),
+        languagesJson: JSON.stringify(generation.languages),
+        hobbiesJson: JSON.stringify(generation.hobbies),
+        shortDescription: generation.shortDescription,
+        motto: generation.motto,
+      })
     );
 
     await transaction.generationLog.create({

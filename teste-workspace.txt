@@ -1,0 +1,1 @@
+Arquivo de teste criado pelo Codex para validar o workspace compartilhado.
