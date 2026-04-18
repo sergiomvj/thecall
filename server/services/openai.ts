@@ -10,9 +10,22 @@ interface GeneratePersonaProfileInput {
 
 interface PersonaProfile {
   role: string;
+  shortDescription: string;
+  motto: string;
+  age: number;
+  city: string;
+  maritalStatus: string;
+  nationality: string;
+  languages: string[];
   psychology: string;
   competencies: string[];
   behavior: string;
+  appearance: string;
+  clothingStyle: string;
+  hobbies: string[];
+  education: string;
+  masteredTopics: string[];
+  familiarTools: string[];
   prompt: string;
   model: string;
 }
@@ -49,6 +62,18 @@ function sanitizeCompetencies(value: unknown): string[] {
     .slice(0, 6);
 }
 
+function sanitizeStringList(value: unknown, maxItems = 8): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .slice(0, maxItems);
+}
+
 function parseOpenAIError(responseBody: string): string {
   try {
     const parsed = JSON.parse(responseBody) as {
@@ -83,10 +108,15 @@ Create a persona using this exact user input:
 Requirements:
 - Keep the persona business-ready and believable.
 - Make the role distinct from existing personas.
+- Create a complete professional and personal persona that can be provisioned by ARVA.
 - The role must sound specific and professional, not generic.
 - Psychology must be concrete, useful, and non-fluffy.
 - Behavior must describe how the persona acts at work, makes decisions, communicates, and executes.
 - Competencies must be practical, work-related, and internally coherent with the function.
+- Age must be realistic for the function.
+- City, nationality, marital status, languages, appearance, clothing style, hobbies, education, mastered topics, and familiar tools must all be coherent with the same person.
+- shortDescription must be a concise one-paragraph summary.
+- motto must be a short memorable line.
 - Vary the niche, communication style, and strengths when similarity risk is high.
 - Return data that matches the provided JSON schema exactly.
 - Do not include extra keys.
@@ -135,6 +165,18 @@ Requirements:
               additionalProperties: false,
               properties: {
                 role: { type: "string" },
+                shortDescription: { type: "string" },
+                motto: { type: "string" },
+                age: { type: "integer", minimum: 18, maximum: 80 },
+                city: { type: "string" },
+                maritalStatus: { type: "string" },
+                nationality: { type: "string" },
+                languages: {
+                  type: "array",
+                  items: { type: "string" },
+                  minItems: 1,
+                  maxItems: 5,
+                },
                 psychology: { type: "string" },
                 competencies: {
                   type: "array",
@@ -143,8 +185,47 @@ Requirements:
                   maxItems: 6,
                 },
                 behavior: { type: "string" },
+                appearance: { type: "string" },
+                clothingStyle: { type: "string" },
+                hobbies: {
+                  type: "array",
+                  items: { type: "string" },
+                  minItems: 3,
+                  maxItems: 6,
+                },
+                education: { type: "string" },
+                masteredTopics: {
+                  type: "array",
+                  items: { type: "string" },
+                  minItems: 4,
+                  maxItems: 8,
+                },
+                familiarTools: {
+                  type: "array",
+                  items: { type: "string" },
+                  minItems: 4,
+                  maxItems: 8,
+                },
               },
-              required: ["role", "psychology", "competencies", "behavior"],
+              required: [
+                "role",
+                "shortDescription",
+                "motto",
+                "age",
+                "city",
+                "maritalStatus",
+                "nationality",
+                "languages",
+                "psychology",
+                "competencies",
+                "behavior",
+                "appearance",
+                "clothingStyle",
+                "hobbies",
+                "education",
+                "masteredTopics",
+                "familiarTools",
+              ],
             },
           },
         },
@@ -182,27 +263,92 @@ Requirements:
 
   const payload = JSON.parse(outputText) as {
     role?: unknown;
+    shortDescription?: unknown;
+    motto?: unknown;
+    age?: unknown;
+    city?: unknown;
+    maritalStatus?: unknown;
+    nationality?: unknown;
+    languages?: unknown;
     psychology?: unknown;
     competencies?: unknown;
     behavior?: unknown;
+    appearance?: unknown;
+    clothingStyle?: unknown;
+    hobbies?: unknown;
+    education?: unknown;
+    masteredTopics?: unknown;
+    familiarTools?: unknown;
   };
 
   const role = typeof payload.role === "string" ? payload.role.trim() : "";
+  const shortDescription =
+    typeof payload.shortDescription === "string"
+      ? payload.shortDescription.trim()
+      : "";
+  const motto = typeof payload.motto === "string" ? payload.motto.trim() : "";
+  const age = typeof payload.age === "number" ? payload.age : 0;
+  const city = typeof payload.city === "string" ? payload.city.trim() : "";
+  const maritalStatus =
+    typeof payload.maritalStatus === "string" ? payload.maritalStatus.trim() : "";
+  const nationality =
+    typeof payload.nationality === "string" ? payload.nationality.trim() : "";
+  const languages = sanitizeStringList(payload.languages, 5);
   const psychology =
     typeof payload.psychology === "string" ? payload.psychology.trim() : "";
   const behavior =
     typeof payload.behavior === "string" ? payload.behavior.trim() : "";
   const competencies = sanitizeCompetencies(payload.competencies);
+  const appearance =
+    typeof payload.appearance === "string" ? payload.appearance.trim() : "";
+  const clothingStyle =
+    typeof payload.clothingStyle === "string" ? payload.clothingStyle.trim() : "";
+  const hobbies = sanitizeStringList(payload.hobbies, 6);
+  const education =
+    typeof payload.education === "string" ? payload.education.trim() : "";
+  const masteredTopics = sanitizeStringList(payload.masteredTopics, 8);
+  const familiarTools = sanitizeStringList(payload.familiarTools, 8);
 
-  if (!role || !psychology || !behavior || competencies.length < 3) {
+  if (
+    !role ||
+    !shortDescription ||
+    !motto ||
+    age < 18 ||
+    !city ||
+    !maritalStatus ||
+    !nationality ||
+    languages.length < 1 ||
+    !psychology ||
+    !behavior ||
+    competencies.length < 3 ||
+    !appearance ||
+    !clothingStyle ||
+    hobbies.length < 3 ||
+    !education ||
+    masteredTopics.length < 4 ||
+    familiarTools.length < 4
+  ) {
     throw new Error("OpenAI returned an incomplete persona payload.");
   }
 
   return {
     role,
+    shortDescription,
+    motto,
+    age,
+    city,
+    maritalStatus,
+    nationality,
+    languages,
     psychology,
     behavior,
     competencies,
+    appearance,
+    clothingStyle,
+    hobbies,
+    education,
+    masteredTopics,
+    familiarTools,
     prompt,
     model: env.OPENAI_MODEL,
   };

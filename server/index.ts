@@ -1,7 +1,7 @@
 import express from "express";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { config as loadEnv } from "dotenv";
 
@@ -69,6 +69,24 @@ function parseCompetenciesJson(value: string): string[] {
 }
 
 const personaExportColumns = [
+  "nome",
+  "personalidade",
+  "perfilGeral",
+  "carreira",
+  "competenciasCentrais",
+  "idade",
+  "localMora",
+  "estadoCivil",
+  "idiomas",
+  "aparencia",
+  "estiloDeVestir",
+  "hobbies",
+  "descCurta",
+  "lema",
+  "nacionalidade",
+  "formacao",
+  "assuntosDomina",
+  "ferramentasFamiliarizado",
   "input_name",
   "input_function",
   "input_skill_optional",
@@ -132,10 +150,103 @@ async function ensureRuntimeSchema() {
       `ALTER TABLE "Persona" ADD COLUMN "inputSkillOptional" TEXT`
     );
   }
+
+  const optionalColumns = [
+    ["shortDescription", "TEXT"],
+    ["motto", "TEXT"],
+    ["age", "INTEGER"],
+    ["city", "TEXT"],
+    ["maritalStatus", "TEXT"],
+    ["nationality", "TEXT"],
+    ["languagesJson", "TEXT"],
+    ["appearance", "TEXT"],
+    ["clothingStyle", "TEXT"],
+    ["hobbiesJson", "TEXT"],
+    ["education", "TEXT"],
+    ["masteredTopicsJson", "TEXT"],
+    ["familiarToolsJson", "TEXT"],
+  ] as const;
+
+  for (const [columnName, columnType] of optionalColumns) {
+    if (!columns.includes(columnName)) {
+      await prisma.$executeRawUnsafe(
+        `ALTER TABLE "Persona" ADD COLUMN "${columnName}" ${columnType}`
+      );
+    }
+  }
+}
+
+type PersonaRecord = {
+  id: string;
+  name: string;
+  background: string;
+  role: string;
+  shortDescription: string | null;
+  motto: string | null;
+  age: number | null;
+  city: string | null;
+  maritalStatus: string | null;
+  nationality: string | null;
+  languagesJson: string | null;
+  psychology: string;
+  behavior: string;
+  appearance: string | null;
+  clothingStyle: string | null;
+  hobbiesJson: string | null;
+  education: string | null;
+  masteredTopicsJson: string | null;
+  familiarToolsJson: string | null;
+  competenciesJson: string;
+  sourcePrompt: string;
+  inputSkillOptional: string | null;
+  normalizedFingerprint: string;
+  similarityScoreMax: number;
+  status: string;
+  avatarUrl: string | null;
+  avatarPrompt: string | null;
+  generationModel: string | null;
+  avatarModel: string | null;
+  rejectionReason: string | null;
+  createdAt: string | Date;
+  updatedAt: string | Date;
+};
+
+function parseJsonArray(value: string | null | undefined): string[] {
+  if (!value) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed)
+      ? parsed.filter((item): item is string => typeof item === "string")
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function toIsoString(value: string | Date): string {
+  return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
+}
+
+async function listPersonas(): Promise<PersonaRecord[]> {
+  return prisma.$queryRawUnsafe<PersonaRecord[]>(
+    `SELECT * FROM "Persona" ORDER BY "createdAt" DESC`
+  );
+}
+
+async function getPersonaById(personaId: string): Promise<PersonaRecord | null> {
+  const rows = await prisma.$queryRawUnsafe<PersonaRecord[]>(
+    `SELECT * FROM "Persona" WHERE "id" = ? LIMIT 1`,
+    personaId
+  );
+
+  return rows[0] ?? null;
 }
 
 function toCandidatePersona(
-  persona: Awaited<ReturnType<typeof prisma.persona.findMany>>[number]
+  persona: PersonaRecord
 ): CandidatePersona {
   return {
     id: persona.id,
@@ -144,12 +255,12 @@ function toCandidatePersona(
     role: persona.role,
     psychology: persona.psychology,
     behavior: persona.behavior,
-    competencies: parseCompetenciesJson(persona.competenciesJson),
+    competencies: parseJsonArray(persona.competenciesJson),
     fingerprint: persona.normalizedFingerprint,
   };
 }
 
-function toPersonaDto(persona: Awaited<ReturnType<typeof prisma.persona.findFirstOrThrow>>) {
+function toPersonaDto(persona: PersonaRecord) {
   return {
     id: persona.id,
     name: persona.name,
@@ -157,14 +268,14 @@ function toPersonaDto(persona: Awaited<ReturnType<typeof prisma.persona.findFirs
     role: persona.role,
     psychology: persona.psychology,
     behavior: persona.behavior,
-    competencies: parseCompetenciesJson(persona.competenciesJson),
+    competencies: parseJsonArray(persona.competenciesJson),
     status: persona.status,
     avatarUrl: persona.avatarUrl,
     similarityScoreMax: persona.similarityScoreMax,
     generationModel: persona.generationModel,
     avatarModel: persona.avatarModel,
-    createdAt: persona.createdAt.toISOString(),
-    updatedAt: persona.updatedAt.toISOString(),
+    createdAt: toIsoString(persona.createdAt),
+    updatedAt: toIsoString(persona.updatedAt),
   };
 }
 
@@ -187,9 +298,7 @@ async function generateAvatarForPersona(personaId: string) {
     throw new Error("GEMINI_API_KEY is not configured on the server.");
   }
 
-  const persona = await prisma.persona.findUnique({
-    where: { id: personaId },
-  });
+  const persona = await getPersonaById(personaId);
 
   if (!persona) {
     throw new Error("Persona not found.");
@@ -251,7 +360,12 @@ async function generateAvatarForPersona(personaId: string) {
       },
     });
 
-    return nextPersona;
+    const rows = await transaction.$queryRawUnsafe<PersonaRecord[]>(
+      `SELECT * FROM "Persona" WHERE "id" = ? LIMIT 1`,
+      nextPersona.id
+    );
+
+    return rows[0];
   });
 
   return updatedPersona;
@@ -294,9 +408,7 @@ app.get("/api/health", asyncHandler(async (_request, response) => {
 }));
 
 app.get("/api/personas", asyncHandler(async (_request, response) => {
-  const personas = await prisma.persona.findMany({
-    orderBy: { createdAt: "desc" },
-  });
+  const personas = await listPersonas();
 
   response.json({
     personas: personas.map((persona) => toPersonaDto(persona)),
@@ -304,34 +416,63 @@ app.get("/api/personas", asyncHandler(async (_request, response) => {
 }));
 
 app.get("/api/personas/export.csv", asyncHandler(async (_request, response) => {
-  const personas = await prisma.persona.findMany({
-    where: {
-      status: {
-        in: ["GENERATED", "AVATAR_PENDING", "READY"],
-      },
-    },
-    orderBy: { createdAt: "desc" },
-    include: {
-      similaritiesFrom: {
-        orderBy: { score: "desc" },
-        take: 1,
-      },
-    },
-  });
+  const personas = await prisma.$queryRawUnsafe<
+    Array<PersonaRecord & { comparedPersonaId: string | null; reason: string | null; blockingThreshold: number | null }>
+  >(
+    `SELECT
+      p.*,
+      ps."comparedPersonaId" AS "comparedPersonaId",
+      ps."reason" AS "reason",
+      ps."blockingThreshold" AS "blockingThreshold"
+    FROM "Persona" p
+    LEFT JOIN "PersonaSimilarity" ps
+      ON ps."sourcePersonaId" = p."id"
+      AND ps."id" = (
+        SELECT ps2."id"
+        FROM "PersonaSimilarity" ps2
+        WHERE ps2."sourcePersonaId" = p."id"
+        ORDER BY ps2."score" DESC
+        LIMIT 1
+      )
+    WHERE p."status" IN ('GENERATED', 'AVATAR_PENDING', 'READY')
+    ORDER BY p."createdAt" DESC`
+  );
 
   const header = personaExportColumns.join(",");
   const rows = personas.map((persona) =>
     personaExportColumns
       .map((column) => {
-        const topSimilarity = persona.similaritiesFrom[0];
         const similarityDecision = getSimilarityDecision(persona.similarityScoreMax);
         const provisioningReady =
           (persona.status === "GENERATED" ||
             persona.status === "AVATAR_PENDING" ||
             persona.status === "READY") &&
           similarityDecision !== "block";
+        const competencies = parseJsonArray(persona.competenciesJson);
+        const languages = parseJsonArray(persona.languagesJson).join(" | ");
+        const hobbies = parseJsonArray(persona.hobbiesJson).join(" | ");
+        const masteredTopics = parseJsonArray(persona.masteredTopicsJson).join(" | ");
+        const familiarTools = parseJsonArray(persona.familiarToolsJson).join(" | ");
 
         const exportRow: Record<ExportColumn, unknown> = {
+          nome: persona.name,
+          personalidade: persona.psychology,
+          perfilGeral: persona.behavior,
+          carreira: persona.background,
+          competenciasCentrais: competencies.join(" | "),
+          idade: persona.age ?? "",
+          localMora: persona.city ?? "",
+          estadoCivil: persona.maritalStatus ?? "",
+          idiomas: languages,
+          aparencia: persona.appearance ?? "",
+          estiloDeVestir: persona.clothingStyle ?? "",
+          hobbies,
+          descCurta: persona.shortDescription ?? "",
+          lema: persona.motto ?? "",
+          nacionalidade: persona.nationality ?? "",
+          formacao: persona.education ?? "",
+          assuntosDomina: masteredTopics,
+          ferramentasFamiliarizado: familiarTools,
           input_name: persona.name,
           input_function: persona.background,
           input_skill_optional: persona.inputSkillOptional ?? "",
@@ -346,8 +487,8 @@ app.get("/api/personas/export.csv", asyncHandler(async (_request, response) => {
           normalizedFingerprint: persona.normalizedFingerprint,
           similarityScoreMax: persona.similarityScoreMax,
           status: persona.status,
-          createdAt: persona.createdAt.toISOString(),
-          updatedAt: persona.updatedAt.toISOString(),
+          createdAt: toIsoString(persona.createdAt),
+          updatedAt: toIsoString(persona.updatedAt),
           avatarUrl: persona.avatarUrl,
           avatarPrompt: persona.avatarPrompt,
           generationModel: persona.generationModel,
@@ -355,12 +496,12 @@ app.get("/api/personas/export.csv", asyncHandler(async (_request, response) => {
           rejectionReason: persona.rejectionReason,
           similarityDecision,
           similarityReasons:
-            topSimilarity?.reason ??
+            persona.reason ??
             (similarityDecision === "allow"
               ? "Similarity is within an acceptable range"
               : ""),
-          comparedPersonaId: topSimilarity?.comparedPersonaId ?? "",
-          blockingThreshold: topSimilarity?.blockingThreshold ?? "",
+          comparedPersonaId: persona.comparedPersonaId ?? "",
+          blockingThreshold: persona.blockingThreshold ?? "",
           provisioningReady,
         };
 
@@ -399,7 +540,7 @@ app.post("/api/personas", asyncHandler(async (request, response) => {
   const existingPersonas = await prisma.persona.findMany({
     orderBy: { createdAt: "desc" },
     take: 50,
-  });
+  }) as unknown as PersonaRecord[];
   const candidateBase: CandidatePersona = {
     name,
     background,
@@ -466,28 +607,46 @@ app.post("/api/personas", asyncHandler(async (request, response) => {
 
   const promptHash = hashPrompt(generation.prompt);
   const createdPersona = await prisma.$transaction(async (transaction) => {
-    const persona = await transaction.persona.create({
-      data: {
-        name,
-        background,
-        role: generation.role,
-        psychology: generation.psychology,
-        behavior: generation.behavior,
-        competenciesJson: JSON.stringify(generation.competencies),
-        sourcePrompt: generation.prompt,
-        inputSkillOptional: inputSkillOptional || null,
-        normalizedFingerprint: finalCandidate.fingerprint,
-        similarityScoreMax: finalSimilarity.maxScore,
-        status: env.GEMINI_API_KEY ? "AVATAR_PENDING" : "GENERATED",
-        generationModel: generation.model,
-      },
-    });
+    const personaId = randomUUID();
+    await transaction.$executeRawUnsafe(
+      `INSERT INTO "Persona" (
+        "id","name","background","role","shortDescription","motto","age","city","maritalStatus","nationality","languagesJson",
+        "psychology","behavior","appearance","clothingStyle","hobbiesJson","education","masteredTopicsJson","familiarToolsJson",
+        "competenciesJson","sourcePrompt","inputSkillOptional","normalizedFingerprint","similarityScoreMax","status","generationModel"
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      personaId,
+      name,
+      background,
+      generation.role,
+      generation.shortDescription,
+      generation.motto,
+      generation.age,
+      generation.city,
+      generation.maritalStatus,
+      generation.nationality,
+      JSON.stringify(generation.languages),
+      generation.psychology,
+      generation.behavior,
+      generation.appearance,
+      generation.clothingStyle,
+      JSON.stringify(generation.hobbies),
+      generation.education,
+      JSON.stringify(generation.masteredTopics),
+      JSON.stringify(generation.familiarTools),
+      JSON.stringify(generation.competencies),
+      generation.prompt,
+      inputSkillOptional || null,
+      finalCandidate.fingerprint,
+      finalSimilarity.maxScore,
+      env.GEMINI_API_KEY ? "AVATAR_PENDING" : "GENERATED",
+      generation.model
+    );
 
     await transaction.generationLog.create({
       data: {
-        personaId: persona.id,
+        personaId,
         kind: "text",
-        provider: "openrouter",
+        provider: "openai",
         model: generation.model,
         promptHash,
         success: true,
@@ -502,7 +661,7 @@ app.post("/api/personas", asyncHandler(async (request, response) => {
     if (finalSimilarity.matches.length > 0) {
       await transaction.personaSimilarity.createMany({
         data: finalSimilarity.matches.slice(0, 3).map((match) => ({
-          sourcePersonaId: persona.id,
+          sourcePersonaId: personaId,
           comparedPersonaId: match.comparedPersonaId,
           score: match.score,
           reason: match.reason,
@@ -511,7 +670,12 @@ app.post("/api/personas", asyncHandler(async (request, response) => {
       });
     }
 
-    return persona;
+    const createdRows = await transaction.$queryRawUnsafe<PersonaRecord[]>(
+      `SELECT * FROM "Persona" WHERE "id" = ? LIMIT 1`,
+      personaId
+    );
+
+    return createdRows[0];
   });
 
   response.status(201).json({

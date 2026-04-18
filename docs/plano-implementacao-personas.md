@@ -99,8 +99,21 @@ ATRIBUTOS OBRIGATORIOS:
   id: String
   name: String
   role: String
+  shortDescription: String
+  motto: String
+  age: Int
+  city: String
+  maritalStatus: String
+  nationality: String
+  languagesJson: Json
   psychology: String
   behavior: String
+  appearance: String
+  clothingStyle: String
+  hobbiesJson: Json
+  education: String
+  masteredTopicsJson: Json
+  familiarToolsJson: Json
   competenciesJson: Json
   background: String
   sourcePrompt: String
@@ -115,9 +128,14 @@ ATRIBUTOS OPCIONAIS:
   generationModel?: String
   avatarModel?: String
   rejectionReason?: String
+  inputSkillOptional?: String
 INVARIANTES:
-  - toda persona persistida possui nome, background e texto gerado validado
+  - toda persona persistida possui nome, funcao e texto gerado validado
   - competenciesJson sempre contem uma lista serializavel
+  - languagesJson sempre contem uma lista serializavel
+  - hobbiesJson sempre contem uma lista serializavel
+  - masteredTopicsJson sempre contem uma lista serializavel
+  - familiarToolsJson sempre contem uma lista serializavel
   - normalizedFingerprint sempre e derivado de campos textuais normalizados
   - status pertence ao conjunto DRAFT | GENERATED | REJECTED_SIMILAR | AVATAR_PENDING | READY | FAILED
 RELACIONAMENTOS:
@@ -295,6 +313,58 @@ RESPOSTA_ERRO:
   500/502 integracao externa
 IDEMPOTENTE: NAO
 RATE_LIMIT: NAO na primeira iteracao
+```
+
+### 8.1.1 PersonaDTO canonico para integracao ARVA
+
+```text
+CONTRATO: PersonaDTO
+TIPO: DTO
+
+CAMPOS DE ENTRADA ORIGINAIS:
+  inputName: string
+  inputFunction: string
+  inputSkillOptional?: string
+
+CAMPOS CANONICOS DA PERSONA:
+  id: string
+  name: string
+  role: string
+  shortDescription: string
+  motto: string
+  age: number
+  city: string
+  maritalStatus: string
+  nationality: string
+  languages: string[]
+  psychology: string
+  behavior: string
+  appearance: string
+  clothingStyle: string
+  hobbies: string[]
+  education: string
+  masteredTopics: string[]
+  familiarTools: string[]
+  competencies: string[]
+  background: string
+  avatarUrl?: string
+  avatarPrompt?: string
+  generationModel?: string
+  avatarModel?: string
+  sourcePrompt: string
+  normalizedFingerprint: string
+  similarityScoreMax: number
+  status: "GENERATED" | "AVATAR_PENDING" | "READY" | "FAILED" | "REJECTED_SIMILAR"
+  rejectionReason?: string
+  createdAt: string
+  updatedAt: string
+
+METADADOS DE REPETICAO PARA EXPORT:
+  similarityDecision: "allow" | "warn" | "block"
+  similarityReasons: string[]
+  comparedPersonaId?: string
+  blockingThreshold?: number
+  provisioningReady: boolean
 ```
 
 ### 8.2 Listar personas
@@ -1251,4 +1321,3 @@ NAO FAZER NESTA TASK:
 - threshold inicial de bloqueio: `0.75` ou outro valor
 - estrategia de armazenamento do avatar: disco local no servidor ou objeto externo
 - nome oficial do modelo Gemini a ser usado no fluxo de imagem, ja que "Nano Banana 2" parece ser um apelido operacional e nao um identificador tecnico de API
-

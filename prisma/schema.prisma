@@ -12,8 +12,21 @@ model Persona {
   name                  String
   background            String
   role                  String
+  shortDescription      String?
+  motto                 String?
+  age                   Int?
+  city                  String?
+  maritalStatus         String?
+  nationality           String?
+  languagesJson         String?
   psychology            String
   behavior              String
+  appearance            String?
+  clothingStyle         String?
+  hobbiesJson           String?
+  education             String?
+  masteredTopicsJson    String?
+  familiarToolsJson     String?
   competenciesJson      String
   sourcePrompt          String
   inputSkillOptional    String?

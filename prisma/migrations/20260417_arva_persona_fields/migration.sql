@@ -1,0 +1,13 @@
+ALTER TABLE "Persona" ADD COLUMN "shortDescription" TEXT;
+ALTER TABLE "Persona" ADD COLUMN "motto" TEXT;
+ALTER TABLE "Persona" ADD COLUMN "age" INTEGER;
+ALTER TABLE "Persona" ADD COLUMN "city" TEXT;
+ALTER TABLE "Persona" ADD COLUMN "maritalStatus" TEXT;
+ALTER TABLE "Persona" ADD COLUMN "nationality" TEXT;
+ALTER TABLE "Persona" ADD COLUMN "languagesJson" TEXT;
+ALTER TABLE "Persona" ADD COLUMN "appearance" TEXT;
+ALTER TABLE "Persona" ADD COLUMN "clothingStyle" TEXT;
+ALTER TABLE "Persona" ADD COLUMN "hobbiesJson" TEXT;
+ALTER TABLE "Persona" ADD COLUMN "education" TEXT;
+ALTER TABLE "Persona" ADD COLUMN "masteredTopicsJson" TEXT;
+ALTER TABLE "Persona" ADD COLUMN "familiarToolsJson" TEXT;
