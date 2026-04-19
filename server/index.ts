@@ -545,9 +545,12 @@ app.get("/api/personas/export.csv", asyncHandler(async (_request, response) => {
     ORDER BY p."createdAt" DESC`
   );
 
+  const exportScope = typeof _request.query.scope === "string" ? _request.query.scope : "";
   const exportablePersonas = dedupePersonasForExport(personas);
+  const personasToExport =
+    exportScope === "all" ? exportablePersonas : exportablePersonas.slice(0, 1);
   const header = personaExportColumns.join(",");
-  const rows = exportablePersonas.map((persona) =>
+  const rows = personasToExport.map((persona) =>
     personaExportColumns
       .map((column) => {
         const similarityDecision = getSimilarityDecision(persona.similarityScoreMax);
@@ -620,8 +623,8 @@ app.get("/api/personas/export.csv", asyncHandler(async (_request, response) => {
 
   response.setHeader("Content-Type", "text/csv; charset=utf-8");
   const fileName =
-    exportablePersonas.length === 1
-      ? `${toFileNameSlug(exportablePersonas[0].name || "persona") || "persona"}.csv`
+    personasToExport.length === 1
+      ? `${toFileNameSlug(personasToExport[0].name || "persona") || "persona"}.csv`
       : "thecall-personas-export.csv";
   response.setHeader(
     "Content-Disposition",
