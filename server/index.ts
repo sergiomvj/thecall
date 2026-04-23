@@ -509,6 +509,35 @@ async function deleteFailedPersona(personaId: string) {
   return { kind: "deleted" as const };
 }
 
+async function resetGeneratedPersonas() {
+  const personas = await prisma.persona.findMany({
+    select: {
+      avatarUrl: true,
+    },
+  });
+
+  await prisma.$transaction(async (transaction) => {
+    await transaction.generationLog.deleteMany();
+    await transaction.personaSimilarity.deleteMany();
+    await transaction.persona.deleteMany();
+  });
+
+  for (const persona of personas) {
+    if (!persona.avatarUrl?.startsWith("/uploads/avatars/")) {
+      continue;
+    }
+
+    const fileName = persona.avatarUrl.replace("/uploads/avatars/", "");
+    const filePath = path.join(uploadsDir, fileName);
+
+    try {
+      await fs.unlink(filePath);
+    } catch {
+      // Ignore missing files; deleting database state is the priority.
+    }
+  }
+}
+
 app.get("/api/health", asyncHandler(async (_request, response) => {
   await prisma.$queryRaw`SELECT 1`;
   response.json({ ok: true });
@@ -630,7 +659,9 @@ app.get("/api/personas/export.csv", asyncHandler(async (_request, response) => {
     "Content-Disposition",
     `attachment; filename="${fileName}"`
   );
-  response.send([header, ...rows].join("\n"));
+  const csvPayload = [header, ...rows].join("\n");
+  await resetGeneratedPersonas();
+  response.send(csvPayload);
 }));
 
 app.post("/api/personas", asyncHandler(async (request, response) => {
