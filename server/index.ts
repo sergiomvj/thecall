@@ -23,9 +23,10 @@ const app = express();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, "..");
 const uploadsDir = path.join(rootDir, "storage", "avatars");
+const fisionomicDir = path.join(rootDir, "storage", "fisionomic");
 const distDir = path.join(rootDir, "dist");
 
-app.use(express.json({ limit: "2mb" }));
+app.use(express.json({ limit: "10mb" }));
 app.use("/uploads", express.static(path.join(rootDir, "storage")));
 app.use(express.static(distDir));
 
@@ -228,6 +229,7 @@ async function ensureRuntimeSchema() {
     ["education", "TEXT"],
     ["masteredTopicsJson", "TEXT"],
     ["familiarToolsJson", "TEXT"],
+    ["fisionomicImagesJson", "TEXT"],
   ] as const;
 
   for (const [columnName, columnType] of optionalColumns) {
@@ -280,6 +282,7 @@ type PersonaRecord = {
   status: string;
   avatarUrl: string | null;
   avatarPrompt: string | null;
+  fisionomicImagesJson: string | null;
   generationModel: string | null;
   avatarModel: string | null;
   rejectionReason: string | null;
@@ -297,6 +300,36 @@ function parseJsonArray(value: string | null | undefined): string[] {
     return Array.isArray(parsed)
       ? parsed.filter((item): item is string => typeof item === "string")
       : [];
+  } catch {
+    return [];
+  }
+}
+
+interface FisionomicImage {
+  id: string;
+  path: string;
+  mimeType: string;
+}
+
+function parseFisionomicImages(value: string | null | undefined): FisionomicImage[] {
+  if (!value) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(value);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return parsed.filter(
+      (item): item is FisionomicImage =>
+        typeof item === "object" &&
+        item !== null &&
+        typeof item.id === "string" &&
+        typeof item.path === "string" &&
+        typeof item.mimeType === "string"
+    );
   } catch {
     return [];
   }
@@ -399,12 +432,14 @@ function toPersonaDto(persona: PersonaRecord) {
     role: persona.role,
     psychology: persona.psychology,
     behavior: persona.behavior,
+    appearance: persona.appearance,
     competencies: parseJsonArray(persona.competenciesJson),
     status: persona.status,
     avatarUrl: persona.avatarUrl,
     similarityScoreMax: persona.similarityScoreMax,
     generationModel: persona.generationModel,
     avatarModel: persona.avatarModel,
+    fisionomicImages: parseFisionomicImages(persona.fisionomicImagesJson),
     createdAt: toIsoString(persona.createdAt),
     updatedAt: toIsoString(persona.updatedAt),
   };
@@ -987,6 +1022,231 @@ app.delete("/api/personas/:id", asyncHandler(async (request, response) => {
   response.status(204).send();
 }));
 
+app.post("/api/personas/:id/fisionomic-images", asyncHandler(async (request, response) => {
+  const personaId = request.params.id;
+  const persona = await getPersonaById(personaId);
+
+  if (!persona) {
+    response.status(404).json({ error: "Persona not found." });
+    return;
+  }
+
+  const imageData = typeof request.body?.imageData === "string" ? request.body.imageData : "";
+  const mimeType = typeof request.body?.mimeType === "string" ? request.body.mimeType : "";
+
+  if (!imageData || !mimeType) {
+    response.status(400).json({ error: "imageData (base64) and mimeType are required." });
+    return;
+  }
+
+  const allowedMimeTypes = ["image/jpeg", "image/png", "image/webp"];
+  if (!allowedMimeTypes.includes(mimeType)) {
+    response.status(400).json({ error: `Unsupported mimeType. Allowed: ${allowedMimeTypes.join(", ")}` });
+    return;
+  }
+
+  const existingImages = parseFisionomicImages(persona.fisionomicImagesJson);
+  if (existingImages.length >= 6) {
+    response.status(400).json({ error: "Maximum of 6 fisionomic images reached." });
+    return;
+  }
+
+  const imageId = randomUUID();
+  const ext = mimeType === "image/jpeg" ? "jpg" : mimeType === "image/png" ? "png" : "webp";
+  const fileName = `${personaId}-${imageId}.${ext}`;
+  const absolutePath = path.join(fisionomicDir, fileName);
+
+  await fs.mkdir(fisionomicDir, { recursive: true });
+  await fs.writeFile(absolutePath, Buffer.from(imageData, "base64"));
+
+  const newImage: FisionomicImage = {
+    id: imageId,
+    path: `/uploads/fisionomic/${fileName}`,
+    mimeType,
+  };
+
+  const updatedImages = [...existingImages, newImage];
+
+  await prisma.$executeRawUnsafe(
+    `UPDATE "Persona" SET "fisionomicImagesJson" = ?, "updatedAt" = CURRENT_TIMESTAMP WHERE "id" = ?`,
+    JSON.stringify(updatedImages),
+    personaId
+  );
+
+  const updatedPersona = await getPersonaById(personaId);
+  response.json({ persona: toPersonaDto(updatedPersona!) });
+}));
+
+app.delete("/api/personas/:id/fisionomic-images/:imageId", asyncHandler(async (request, response) => {
+  const personaId = request.params.id;
+  const imageId = request.params.imageId;
+
+  const persona = await getPersonaById(personaId);
+  if (!persona) {
+    response.status(404).json({ error: "Persona not found." });
+    return;
+  }
+
+  const existingImages = parseFisionomicImages(persona.fisionomicImagesJson);
+  const targetImage = existingImages.find((img) => img.id === imageId);
+
+  if (!targetImage) {
+    response.status(404).json({ error: "Image not found." });
+    return;
+  }
+
+  const relativePath = targetImage.path.replace(/^\//, "");
+  const absolutePath = path.join(rootDir, relativePath);
+
+  try {
+    await fs.unlink(absolutePath);
+  } catch {
+    // file may already be gone
+  }
+
+  const remainingImages = existingImages.filter((img) => img.id !== imageId);
+
+  await prisma.$executeRawUnsafe(
+    `UPDATE "Persona" SET "fisionomicImagesJson" = ?, "updatedAt" = CURRENT_TIMESTAMP WHERE "id" = ?`,
+    remainingImages.length > 0 ? JSON.stringify(remainingImages) : null,
+    personaId
+  );
+
+  const updatedPersona = await getPersonaById(personaId);
+  response.json({ persona: toPersonaDto(updatedPersona!) });
+}));
+
+app.post("/api/personas/:id/reprocess-appearance", asyncHandler(async (request, response) => {
+  if (!env.GEMINI_API_KEY) {
+    response.status(500).json({ error: "GEMINI_API_KEY is not configured." });
+    return;
+  }
+
+  const personaId = request.params.id;
+  const persona = await getPersonaById(personaId);
+
+  if (!persona) {
+    response.status(404).json({ error: "Persona not found." });
+    return;
+  }
+
+  const imageParts: Array<{ inlineData: { data: string; mimeType: string } }> = [];
+
+  if (persona.avatarUrl) {
+    const avatarRelativePath = persona.avatarUrl.replace(/^\//, "");
+    const avatarAbsolutePath = path.join(rootDir, avatarRelativePath);
+
+    try {
+      const imageBuffer = await fs.readFile(avatarAbsolutePath);
+      const ext = path.extname(avatarAbsolutePath).toLowerCase();
+      const mime = ext === ".jpg" || ext === ".jpeg" ? "image/jpeg" : ext === ".webp" ? "image/webp" : "image/png";
+      imageParts.push({
+        inlineData: { data: imageBuffer.toString("base64"), mimeType: mime },
+      });
+    } catch {
+      // avatar file may not exist on disk
+    }
+  }
+
+  const fisionomicImages = parseFisionomicImages(persona.fisionomicImagesJson);
+  for (const img of fisionomicImages) {
+    const imgRelativePath = img.path.replace(/^\//, "");
+    const imgAbsolutePath = path.join(rootDir, imgRelativePath);
+
+    try {
+      const imageBuffer = await fs.readFile(imgAbsolutePath);
+      imageParts.push({
+        inlineData: { data: imageBuffer.toString("base64"), mimeType: img.mimeType },
+      });
+    } catch {
+      // skip missing files
+    }
+  }
+
+  if (imageParts.length === 0) {
+    response.status(400).json({ error: "No avatar or fisionomic images available for analysis." });
+    return;
+  }
+
+  const visionPrompt = [
+    "Analyze the person shown in the attached image(s) and produce a detailed fisionomic description.",
+    "Follow this EXACT format (Portuguese or English is fine, but be concrete):",
+    '"Person approximately [age] years old, [face shape], [skin tone], [eye type and color], [nose type], [mouth/lip type], [eyebrow type], [hair: color, texture, length and cut], [body type], [posture/expression], [fixed elements like glasses, beard, tattoo, scar or distinguishing mark]."',
+    "Rules:",
+    "- Replace each bracket with a concrete physical trait observed in the image.",
+    "- Do NOT describe clothing.",
+    "- Do NOT write vague or abstract descriptions.",
+    "- Be specific and objective about face shape, skin tone, eye shape/color, nose shape, lip shape, eyebrow shape, hair characteristics, body build, posture, and any fixed distinguishing features.",
+    "- If multiple images are provided, synthesize a single consistent description.",
+    "- Output ONLY the description text, no explanations, no labels, no markdown.",
+  ].join("\n");
+
+  const ai = new GoogleGenAI({ apiKey: env.GEMINI_API_KEY });
+
+  const visionResponse = await ai.models.generateContent({
+    model: env.GEMINI_VISION_MODEL,
+    contents: [
+      {
+        role: "user",
+        parts: [
+          { text: visionPrompt },
+          ...imageParts,
+        ],
+      },
+    ],
+  });
+
+  const newAppearance = typeof visionResponse.text === "string"
+    ? visionResponse.text.trim()
+    : "";
+
+  if (!newAppearance) {
+    response.status(500).json({ error: "Gemini Vision returned an empty description." });
+    return;
+  }
+
+  const newAvatarPrompt = buildCanonicalAvatarPrompt({
+    name: persona.name,
+    role: persona.role,
+    age: persona.age,
+    city: persona.city,
+    maritalStatus: persona.maritalStatus,
+    nationality: persona.nationality,
+    appearance: newAppearance,
+    clothingStyle: persona.clothingStyle,
+    psychology: persona.psychology,
+    behavior: persona.behavior,
+    background: persona.background,
+    competenciesJson: persona.competenciesJson,
+    languagesJson: persona.languagesJson,
+    hobbiesJson: persona.hobbiesJson,
+    shortDescription: persona.shortDescription,
+    motto: persona.motto,
+  });
+
+  await prisma.$executeRawUnsafe(
+    `UPDATE "Persona" SET "appearance" = ?, "avatarPrompt" = ?, "updatedAt" = CURRENT_TIMESTAMP WHERE "id" = ?`,
+    newAppearance,
+    newAvatarPrompt,
+    personaId
+  );
+
+  await prisma.generationLog.create({
+    data: {
+      personaId,
+      kind: "reprocess_appearance",
+      provider: "google",
+      model: env.GEMINI_VISION_MODEL,
+      promptHash: hashPrompt(`vision:${personaId}:${Date.now()}`),
+      success: true,
+      responseExcerpt: newAppearance.slice(0, 300),
+    },
+  });
+
+  const updatedPersona = await getPersonaById(personaId);
+  response.json({ persona: toPersonaDto(updatedPersona!), appearance: newAppearance });
+}));
+
 app.use(
   (
     error: unknown,
@@ -1017,6 +1277,7 @@ app.get("*", asyncHandler(async (request, response, next) => {
 
 async function main() {
   await fs.mkdir(uploadsDir, { recursive: true });
+  await fs.mkdir(fisionomicDir, { recursive: true });
   await prisma.$connect();
   await ensureRuntimeSchema();
 

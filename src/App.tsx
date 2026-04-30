@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   Brain,
   Briefcase,
+  Camera,
   Database,
   Download,
   History,
@@ -13,7 +14,9 @@ import {
   ShieldCheck,
   Terminal,
   Trash2,
+  Upload,
   User,
+  X,
   Zap,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
@@ -25,6 +28,12 @@ type PersonaStatus =
   | "FAILED"
   | "REJECTED_SIMILAR";
 
+interface FisionomicImage {
+  id: string;
+  path: string;
+  mimeType: string;
+}
+
 interface Persona {
   id: string;
   name: string;
@@ -33,11 +42,13 @@ interface Persona {
   psychology: string;
   competencies: string[];
   behavior: string;
+  appearance?: string | null;
   status: PersonaStatus;
   avatarUrl?: string | null;
   similarityScoreMax: number;
   generationModel?: string | null;
   avatarModel?: string | null;
+  fisionomicImages?: FisionomicImage[];
   createdAt: string;
   updatedAt: string;
 }
@@ -130,6 +141,9 @@ export default function App() {
     {}
   );
   const [deletingPersonaId, setDeletingPersonaId] = useState<string | null>(null);
+  const [reprocessingId, setReprocessingId] = useState<string | null>(null);
+  const [uploadingPersonaId, setUploadingPersonaId] = useState<string | null>(null);
+  const [deletingImageId, setDeletingImageId] = useState<string | null>(null);
 
   const selectedPersona =
     personas.find((persona) => persona.id === selectedPersonaId) ?? null;
@@ -265,6 +279,85 @@ export default function App() {
       );
     } finally {
       setDeletingPersonaId(null);
+    }
+  }
+
+  async function uploadFisionomicImage(personaId: string, file: File) {
+    setUploadingPersonaId(personaId);
+    setErrorMessage(null);
+
+    try {
+      const reader = new FileReader();
+      const base64Promise = new Promise<string>((resolve, reject) => {
+        reader.onload = () => {
+          const result = reader.result as string;
+          const base64 = result.split(",")[1];
+          resolve(base64);
+        };
+        reader.onerror = reject;
+      });
+
+      reader.readAsDataURL(file);
+      const base64Data = await base64Promise;
+
+      const data = await apiFetch<{ persona: Persona }>(
+        `/api/personas/${personaId}/fisionomic-images`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            imageData: base64Data,
+            mimeType: file.type || "image/jpeg",
+          }),
+        }
+      );
+
+      upsertPersona(data.persona);
+    } catch (error) {
+      console.error("Failed to upload fisionomic image:", error);
+      setErrorMessage("Falha ao enviar imagem fisionomica.");
+    } finally {
+      setUploadingPersonaId(null);
+    }
+  }
+
+  async function deleteFisionomicImage(personaId: string, imageId: string) {
+    setDeletingImageId(imageId);
+    setErrorMessage(null);
+
+    try {
+      const data = await apiFetch<{ persona: Persona }>(
+        `/api/personas/${personaId}/fisionomic-images/${imageId}`,
+        { method: "DELETE" }
+      );
+
+      upsertPersona(data.persona);
+    } catch (error) {
+      console.error("Failed to delete fisionomic image:", error);
+      setErrorMessage("Falha ao remover imagem fisionomica.");
+    } finally {
+      setDeletingImageId(null);
+    }
+  }
+
+  async function reprocessAppearance(personaId: string) {
+    setReprocessingId(personaId);
+    setErrorMessage(null);
+
+    try {
+      const data = await apiFetch<{ persona: Persona; appearance: string }>(
+        `/api/personas/${personaId}/reprocess-appearance`,
+        { method: "POST" }
+      );
+
+      upsertPersona(data.persona);
+    } catch (error) {
+      console.error("Failed to reprocess appearance:", error);
+      const typedError = error as Error;
+      setErrorMessage(
+        typedError.message || "Falha ao reprocessar descricao fisionomica."
+      );
+    } finally {
+      setReprocessingId(null);
     }
   }
 
@@ -469,6 +562,64 @@ export default function App() {
                           )}
                         </button>
                       )}
+                      <div className="border-t border-[#26262B] pt-4 mb-4">
+                        <h4 className="text-[9px] font-bold uppercase tracking-widest text-[#8E9299] mb-3 flex items-center gap-2">
+                          <Camera className="w-3 h-3" /> Imagens Fisionomicas
+                        </h4>
+                        <div className="flex flex-wrap gap-2 mb-3">
+                          {(selectedPersona.fisionomicImages ?? []).map((img) => (
+                            <div key={img.id} className="relative w-14 h-14 rounded overflow-hidden border border-[#3A3A40] group/img">
+                              <img
+                                src={img.path}
+                                alt="Fisionomic reference"
+                                className="w-full h-full object-cover"
+                              />
+                              <button
+                                onClick={() => void deleteFisionomicImage(selectedPersona.id, img.id)}
+                                disabled={deletingImageId === img.id}
+                                className="absolute inset-0 bg-black/60 flex items-center justify-center opacity-0 group-hover/img:opacity-100 transition-opacity"
+                              >
+                                {deletingImageId === img.id ? (
+                                  <Loader2 className="w-4 h-4 animate-spin text-white" />
+                                ) : (
+                                  <X className="w-4 h-4 text-white" />
+                                )}
+                              </button>
+                            </div>
+                          ))}
+                          {(!selectedPersona.fisionomicImages || selectedPersona.fisionomicImages.length === 0) && (
+                            <div className="w-14 h-14 rounded border border-dashed border-[#3A3A40] flex items-center justify-center opacity-30">
+                              <Camera className="w-4 h-4" />
+                            </div>
+                          )}
+                        </div>
+                        <label className="w-full mb-3 bg-[#1A1A1F] border border-[#26262B] h-8 rounded text-[10px] font-bold tracking-wider hover:border-[#F27D26] transition-colors flex items-center justify-center gap-2 cursor-pointer">
+                          {uploadingPersonaId === selectedPersona.id ? (
+                            <>
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                              ENVIANDO...
+                            </>
+                          ) : (
+                            <>
+                              <Upload className="w-3 h-3" />
+                              UPLOAD IMAGEM
+                            </>
+                          )}
+                          <input
+                            type="file"
+                            accept="image/jpeg,image/png,image/webp"
+                            className="hidden"
+                            disabled={uploadingPersonaId === selectedPersona.id}
+                            onChange={(event) => {
+                              const file = event.target.files?.[0];
+                              if (file) {
+                                void uploadFisionomicImage(selectedPersona.id, file);
+                              }
+                              event.target.value = "";
+                            }}
+                          />
+                        </label>
+                      </div>
                       <div className="space-y-2 mt-auto">
                         <div className="flex items-center justify-between text-[10px] border-b border-[#26262B] pb-1">
                           <span className="opacity-40">GEN_ID</span>
@@ -496,6 +647,40 @@ export default function App() {
                     </div>
 
                     <div className="md:col-span-2 space-y-6">
+                      <div className="bg-[#15151A] border border-[#26262B] p-6 rounded">
+                        <div className="flex items-center justify-between mb-4">
+                          <h3 className="text-[10px] font-bold uppercase tracking-widest text-[#8E9299] flex items-center gap-2">
+                            <Camera className="w-3 h-3" /> Descricao Fisionomica
+                          </h3>
+                          <button
+                            onClick={() => void reprocessAppearance(selectedPersona.id)}
+                            disabled={reprocessingId === selectedPersona.id}
+                            className="flex items-center gap-2 bg-[#F27D26]/10 border border-[#F27D26]/30 text-[#F27D26] px-3 py-1.5 rounded text-[10px] font-bold tracking-wider hover:bg-[#F27D26]/20 transition-colors disabled:opacity-40"
+                          >
+                            {reprocessingId === selectedPersona.id ? (
+                              <>
+                                <Loader2 className="w-3 h-3 animate-spin" />
+                                REPROCESSANDO...
+                              </>
+                            ) : (
+                              <>
+                                <RefreshCw className="w-3 h-3" />
+                                REPROCESSAR DESCRICAO
+                              </>
+                            )}
+                          </button>
+                        </div>
+                        {selectedPersona.appearance ? (
+                          <p className="text-sm leading-relaxed text-[#B0B0B8] whitespace-pre-line">
+                            {selectedPersona.appearance}
+                          </p>
+                        ) : (
+                          <p className="text-xs text-[#8E9299] italic">
+                            Nenhuma descricao fisionomica disponivel. Clique em "Reprocessar Descricao" para gerar a partir do avatar.
+                          </p>
+                        )}
+                      </div>
+
                       <div className="bg-[#15151A] border border-[#26262B] p-6 rounded">
                         <h3 className="text-[10px] font-bold uppercase tracking-widest text-[#8E9299] mb-4 flex items-center gap-2">
                           <Brain className="w-3 h-3" /> Core Psychology

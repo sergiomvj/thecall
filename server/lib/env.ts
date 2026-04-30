@@ -66,4 +66,7 @@ export const env = {
   get GEMINI_AVATAR_MODEL() {
     return process.env.GEMINI_AVATAR_MODEL ?? "imagen-4.0-generate-001";
   },
+  get GEMINI_VISION_MODEL() {
+    return process.env.GEMINI_VISION_MODEL ?? "gemini-2.0-flash";
+  },
 };

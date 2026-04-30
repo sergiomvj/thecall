@@ -48,6 +48,7 @@ model Persona {
   status                String
   avatarUrl             String?
   avatarPrompt          String?
+  fisionomicImagesJson  String?
   generationModel       String?
   avatarModel           String?
   rejectionReason       String?
