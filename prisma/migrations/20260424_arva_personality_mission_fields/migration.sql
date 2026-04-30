@@ -1,0 +1,13 @@
+ALTER TABLE "Persona" ADD COLUMN "adjectives" TEXT;
+ALTER TABLE "Persona" ADD COLUMN "communicationTone" TEXT;
+ALTER TABLE "Persona" ADD COLUMN "underPressure" TEXT;
+ALTER TABLE "Persona" ADD COLUMN "coreMotivation" TEXT;
+ALTER TABLE "Persona" ADD COLUMN "beliefsPhilosophy" TEXT;
+ALTER TABLE "Persona" ADD COLUMN "senseOfHumor" TEXT;
+ALTER TABLE "Persona" ADD COLUMN "neverWouldDo" TEXT;
+ALTER TABLE "Persona" ADD COLUMN "arvaLine" TEXT;
+ALTER TABLE "Persona" ADD COLUMN "servesTo" TEXT;
+ALTER TABLE "Persona" ADD COLUMN "mainObjective" TEXT;
+ALTER TABLE "Persona" ADD COLUMN "responsibilities" TEXT;
+ALTER TABLE "Persona" ADD COLUMN "notResponsibleFor" TEXT;
+ALTER TABLE "Persona" ADD COLUMN "ninetyDayOutcome" TEXT;

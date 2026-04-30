@@ -21,6 +21,19 @@ model Persona {
   languagesJson         String?
   psychology            String
   behavior              String
+  adjectives            String?
+  communicationTone     String?
+  underPressure         String?
+  coreMotivation        String?
+  beliefsPhilosophy     String?
+  senseOfHumor          String?
+  neverWouldDo          String?
+  arvaLine              String?
+  servesTo              String?
+  mainObjective         String?
+  responsibilities      String?
+  notResponsibleFor     String?
+  ninetyDayOutcome      String?
   appearance            String?
   clothingStyle         String?
   hobbiesJson           String?

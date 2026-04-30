@@ -74,6 +74,19 @@ const personaExportColumns = [
   "perfilGeral",
   "carreira",
   "competenciasCentrais",
+  "adjetivos",
+  "tomDeComunicacao",
+  "sobPressao",
+  "motivacaoCentral",
+  "crencasFilosofia",
+  "sensoDeHumor",
+  "jamaisFaria",
+  "arvaLine",
+  "serveA",
+  "objetivoPrincipal",
+  "responsabilidades",
+  "naoResponsavelPor",
+  "resultadoEm90Dias",
   "idade",
   "localMora",
   "estadoCivil",
@@ -196,6 +209,19 @@ async function ensureRuntimeSchema() {
     ["maritalStatus", "TEXT"],
     ["nationality", "TEXT"],
     ["languagesJson", "TEXT"],
+    ["adjectives", "TEXT"],
+    ["communicationTone", "TEXT"],
+    ["underPressure", "TEXT"],
+    ["coreMotivation", "TEXT"],
+    ["beliefsPhilosophy", "TEXT"],
+    ["senseOfHumor", "TEXT"],
+    ["neverWouldDo", "TEXT"],
+    ["arvaLine", "TEXT"],
+    ["servesTo", "TEXT"],
+    ["mainObjective", "TEXT"],
+    ["responsibilities", "TEXT"],
+    ["notResponsibleFor", "TEXT"],
+    ["ninetyDayOutcome", "TEXT"],
     ["appearance", "TEXT"],
     ["clothingStyle", "TEXT"],
     ["hobbiesJson", "TEXT"],
@@ -227,6 +253,19 @@ type PersonaRecord = {
   languagesJson: string | null;
   psychology: string;
   behavior: string;
+  adjectives: string | null;
+  communicationTone: string | null;
+  underPressure: string | null;
+  coreMotivation: string | null;
+  beliefsPhilosophy: string | null;
+  senseOfHumor: string | null;
+  neverWouldDo: string | null;
+  arvaLine: string | null;
+  servesTo: string | null;
+  mainObjective: string | null;
+  responsibilities: string | null;
+  notResponsibleFor: string | null;
+  ninetyDayOutcome: string | null;
   appearance: string | null;
   clothingStyle: string | null;
   hobbiesJson: string | null;
@@ -538,6 +577,14 @@ async function resetGeneratedPersonas() {
   }
 }
 
+function schedulePersonaReset() {
+  setTimeout(() => {
+    void resetGeneratedPersonas().catch((error) => {
+      console.error("Failed to reset generated personas after export.", error);
+    });
+  }, 0);
+}
+
 app.get("/api/health", asyncHandler(async (_request, response) => {
   await prisma.$queryRaw`SELECT 1`;
   response.json({ ok: true });
@@ -600,6 +647,19 @@ app.get("/api/personas/export.csv", asyncHandler(async (_request, response) => {
           perfilGeral: persona.behavior,
           carreira: persona.background,
           competenciasCentrais: competencies.join(" | "),
+          adjetivos: persona.adjectives ?? "",
+          tomDeComunicacao: persona.communicationTone ?? "",
+          sobPressao: persona.underPressure ?? "",
+          motivacaoCentral: persona.coreMotivation ?? "",
+          crencasFilosofia: persona.beliefsPhilosophy ?? "",
+          sensoDeHumor: persona.senseOfHumor ?? "",
+          jamaisFaria: persona.neverWouldDo ?? "",
+          arvaLine: persona.arvaLine ?? "",
+          serveA: persona.servesTo ?? "",
+          objetivoPrincipal: persona.mainObjective ?? "",
+          responsabilidades: persona.responsibilities ?? "",
+          naoResponsavelPor: persona.notResponsibleFor ?? "",
+          resultadoEm90Dias: persona.ninetyDayOutcome ?? "",
           idade: persona.age ?? "",
           localMora: persona.city ?? "",
           estadoCivil: persona.maritalStatus ?? "",
@@ -660,8 +720,8 @@ app.get("/api/personas/export.csv", asyncHandler(async (_request, response) => {
     `attachment; filename="${fileName}"`
   );
   const csvPayload = [header, ...rows].join("\n");
-  await resetGeneratedPersonas();
   response.send(csvPayload);
+  schedulePersonaReset();
 }));
 
 app.post("/api/personas", asyncHandler(async (request, response) => {
@@ -757,9 +817,10 @@ app.post("/api/personas", asyncHandler(async (request, response) => {
     await transaction.$executeRawUnsafe(
       `INSERT INTO "Persona" (
         "id","name","background","role","shortDescription","motto","age","city","maritalStatus","nationality","languagesJson",
-        "psychology","behavior","appearance","clothingStyle","hobbiesJson","education","masteredTopicsJson","familiarToolsJson",
+        "psychology","behavior","adjectives","communicationTone","underPressure","coreMotivation","beliefsPhilosophy","senseOfHumor","neverWouldDo",
+        "arvaLine","servesTo","mainObjective","responsibilities","notResponsibleFor","ninetyDayOutcome","appearance","clothingStyle","hobbiesJson","education","masteredTopicsJson","familiarToolsJson",
         "competenciesJson","sourcePrompt","inputSkillOptional","normalizedFingerprint","similarityScoreMax","status","generationModel","avatarPrompt"
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       personaId,
       name,
       background,
@@ -773,6 +834,19 @@ app.post("/api/personas", asyncHandler(async (request, response) => {
       JSON.stringify(generation.languages),
       generation.psychology,
       generation.behavior,
+      generation.adjectives,
+      generation.communicationTone,
+      generation.underPressure,
+      generation.coreMotivation,
+      generation.beliefsPhilosophy,
+      generation.senseOfHumor,
+      generation.neverWouldDo,
+      generation.arvaLine,
+      generation.servesTo,
+      generation.mainObjective,
+      generation.responsibilities,
+      generation.notResponsibleFor,
+      generation.ninetyDayOutcome,
       generation.appearance,
       generation.clothingStyle,
       JSON.stringify(generation.hobbies),
